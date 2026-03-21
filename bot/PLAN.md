@@ -37,6 +37,7 @@ bot/
 ### Phase 1: Scaffold (Task 1)
 
 Create the basic project structure with:
+
 - Entry point (`bot.py`) with `--test` mode support
 - Handler directory with placeholder handlers
 - Configuration module for loading environment variables
@@ -47,6 +48,7 @@ Create the basic project structure with:
 ### Phase 2: Backend Integration (Task 2)
 
 Implement real handler logic:
+
 - Connect handlers to the LMS API via the backend service
 - Implement `/start`, `/help`, `/health`, `/labs`, `/scores` commands
 - Add error handling for API failures
@@ -57,6 +59,7 @@ Implement real handler logic:
 ### Phase 3: Intent Routing (Task 3)
 
 Add LLM-based natural language understanding:
+
 - Implement LLM client service for intent classification
 - Create intent router that maps user messages to handlers
 - Support natural language queries like "what labs are available"
@@ -67,6 +70,7 @@ Add LLM-based natural language understanding:
 ### Phase 4: Deployment (Task 4)
 
 Deploy and monitor the bot:
+
 - Configure production environment on the VM
 - Set up logging and error tracking
 - Document deployment process
@@ -97,3 +101,5 @@ The bot requires the following environment variables (see `.env.bot.example`):
 - Bot responds correctly in Telegram after deployment
 - Handlers are testable without Telegram connection
 - Configuration is loaded securely from environment variables
+pfprp
+fppf
