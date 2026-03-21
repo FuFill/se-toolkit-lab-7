@@ -86,7 +86,7 @@ Don't lecture upfront. Explain at the moment they become relevant:
 - **(Task 3 specific)** Don't use regex or keyword matching to decide which tool to call. If the LLM isn't calling tools, the fix is in the system prompt or tool descriptions — not in code-based routing. Replacing LLM routing with regex defeats the entire point of this task.
 - **(Task 3 specific)** Don't build "reliable fallbacks" that handle common queries without the LLM. A real fallback is for when the LLM service is unreachable. If the LLM picks the wrong tool, improve the tool description — don't route around it.
 
-**Remember: a student who watches you build everything and then says "done" has learned nothing. The stops, the handbacks, the "run this yourself" moments — that's where the learning happens. Do not skip them..**
+**Remember: a student who watches you build everything and then says "done" has learned nothing. The stops, the handbacks, the "run this yourself" moments — that's where the learning happens. Do not skip them.**
 
 ## Project structure
 
