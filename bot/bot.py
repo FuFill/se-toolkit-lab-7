@@ -4,6 +4,8 @@
 Supports two modes:
 1. Test mode (--test): Runs handlers directly without Telegram connection
 2. Telegram mode: Runs the bot with aiogram for Telegram integration
+
+Task 3: Adds LLM-based intent routing for natural language queries.
 """
 
 import argparse
@@ -18,9 +20,18 @@ if sys.platform == "win32":
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command, CommandObject
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from config import get_settings
-from handlers import handle_start, handle_help, handle_health, handle_labs, handle_scores
+from handlers import (
+    handle_start,
+    handle_help,
+    handle_health,
+    handle_labs,
+    handle_scores,
+    route_intent,
+)
+from services import LMSAPIClient, LLMClient
 
 # Configure logging
 logging.basicConfig(
@@ -45,7 +56,7 @@ def parse_command(text: str) -> tuple[str, list[str]]:
         command = parts[0]
         args = parts[1].split() if len(parts) > 1 else []
         return command, args
-    # Natural language query - treat as unknown command
+    # Natural language query - no command
     return "", [text]
 
 
@@ -71,26 +82,69 @@ def handle_command(command: str, args: list[str]) -> str:
         case "scores":
             lab_id = args[0] if args else None
             return handle_scores(lab_id)
+        case "":
+            # Natural language query - use LLM intent routing
+            # This is handled separately in run_test_mode
+            return ""
         case _:
-            # Unknown command or natural language query
-            # For now, return help message
-            # Task 3: Add LLM-based intent routing here
-            return (
-                f"❓ Неизвестная команда: /{command}\n\n"
-                "Попробуйте /help для списка доступных команд."
-            )
+            # Unknown command - use LLM to try to understand
+            return f"❓ Неизвестная команда: /{command}\n\nПопробуйте /help для списка доступных команд."
 
 
 def run_test_mode(query: str) -> None:
-    """Run bot in test mode - execute handler directly.
+    """Run bot in test mode - execute handler or LLM routing.
 
     Args:
-        query: Command string (e.g., "/start" or "/scores lab-04")
+        query: Command string or natural language query
     """
+    settings = get_settings()
+
+    # Check if it's a slash command
     command, args = parse_command(query)
-    response = handle_command(command, args)
+    if command:
+        response = handle_command(command, args)
+        print(response)
+        sys.exit(0)
+
+    # Natural language query - use LLM routing
+    if not settings.lms_api_base_url or not settings.lms_api_key:
+        print("Error: LMS_API_BASE_URL and LMS_API_KEY required in .env.bot.secret", file=sys.stderr)
+        sys.exit(1)
+
+    if not settings.llm_api_base_url or not settings.llm_api_key:
+        print("Error: LLM_API_BASE_URL and LLM_API_KEY required in .env.bot.secret", file=sys.stderr)
+        sys.exit(1)
+
+    # Initialize clients
+    api_client = LMSAPIClient(settings.lms_api_base_url, settings.lms_api_key)
+    llm_client = LLMClient(settings.llm_api_base_url, settings.llm_api_key, settings.llm_api_model)
+
+    # Route the query through LLM
+    response = route_intent(query, api_client, llm_client, debug=True)
     print(response)
     sys.exit(0)
+
+
+def get_start_keyboard() -> InlineKeyboardMarkup:
+    """Create inline keyboard for /start command.
+
+    Returns:
+        InlineKeyboardMarkup with common action buttons
+    """
+    keyboard = [
+        [
+            InlineKeyboardButton(text="📋 Доступные лабы", callback_data="labs"),
+            InlineKeyboardButton(text="🏥 Статус системы", callback_data="health"),
+        ],
+        [
+            InlineKeyboardButton(text="📊 Топ студентов", callback_data="top_learners"),
+            InlineKeyboardButton(text="❓ Помощь", callback_data="help"),
+        ],
+        [
+            InlineKeyboardButton(text="🔍 Найти худшую лабораторию", callback_data="worst_lab"),
+        ],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 async def run_telegram_mode() -> None:
@@ -104,11 +158,19 @@ async def run_telegram_mode() -> None:
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher()
 
+    # Initialize API and LLM clients
+    api_client = None
+    llm_client = None
+    if settings.lms_api_base_url and settings.lms_api_key:
+        api_client = LMSAPIClient(settings.lms_api_base_url, settings.lms_api_key)
+    if settings.llm_api_base_url and settings.llm_api_key:
+        llm_client = LLMClient(settings.llm_api_base_url, settings.llm_api_key, settings.llm_api_model)
+
     # Register command handlers
     @dp.message(Command("start"))
     async def cmd_start(message: types.Message, command: CommandObject) -> None:
         response = handle_start()
-        await message.answer(response)
+        await message.answer(response, reply_markup=get_start_keyboard())
 
     @dp.message(Command("help"))
     async def cmd_help(message: types.Message, command: CommandObject) -> None:
@@ -130,6 +192,65 @@ async def run_telegram_mode() -> None:
         lab_id = command.args.split()[0] if command.args else None
         response = handle_scores(lab_id)
         await message.answer(response)
+
+    # Handle callback queries from inline buttons
+    @dp.callback_query()
+    async def handle_callback(callback: types.CallbackQuery) -> None:
+        action = callback.data
+
+        if action == "labs":
+            response = handle_labs()
+        elif action == "health":
+            response = handle_health()
+        elif action == "help":
+            response = handle_help()
+        elif action == "top_learners":
+            if api_client and llm_client:
+                response = route_intent("кто топ 5 студентов?", api_client, llm_client)
+            else:
+                response = "LLM не настроен"
+        elif action == "worst_lab":
+            if api_client and llm_client:
+                response = route_intent("какая лаборатория имеет наименьший процент сдачи?", api_client, llm_client)
+            else:
+                response = "LLM не настроен"
+        else:
+            response = "Неизвестное действие"
+
+        await callback.message.answer(response)
+        await callback.answer()
+
+    # Handle all other messages (natural language queries)
+    @dp.message()
+    async def handle_message(message: types.Message) -> None:
+        user_text = message.text
+
+        if not user_text:
+            return
+
+        # Check if it's a slash command (shouldn't reach here, but just in case)
+        if user_text.startswith("/"):
+            await message.answer("Неизвестная команда. Попробуйте /help")
+            return
+
+        # Use LLM intent routing for natural language queries
+        if api_client and llm_client:
+            # Send "thinking" message
+            thinking = await message.answer("🤔 Думаю...")
+
+            try:
+                response = route_intent(user_text, api_client, llm_client)
+                await thinking.edit_text(response)
+            except Exception as e:
+                logger.error(f"Error in intent routing: {e}")
+                await thinking.edit_text(f"Ошибка: {e}")
+        else:
+            await message.answer(
+                "Я пока не умею отвечать на вопросы. Попробуйте использовать команды:\n"
+                "/help — показать команды\n"
+                "/labs — показать лабораторные\n"
+                "/scores <lab> — показать оценки"
+            )
 
     # Start polling
     logger.info("Starting Telegram bot...")
