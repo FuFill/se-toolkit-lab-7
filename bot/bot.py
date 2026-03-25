@@ -155,6 +155,17 @@ async def run_telegram_mode() -> None:
         logger.error("BOT_TOKEN not found in environment. Cannot start Telegram bot.")
         sys.exit(1)
 
+    # Initialize clients
+    lms_client = LMSClient(
+        base_url=settings.lms_api_base_url or "http://localhost:42002",
+        api_key=settings.lms_api_key or "",
+    )
+    llm_client = LLMClient(
+        api_key=settings.llm_api_key or "",
+        base_url=settings.llm_api_base_url or "http://localhost:42005/v1",
+        model=settings.llm_api_model,
+    )
+
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher()
 

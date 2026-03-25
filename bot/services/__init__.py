@@ -1,4 +1,4 @@
-"""Services for the LMS bot.
+"""Services for the LMS Telegram bot."""
 
 API clients and external service integrations.
 """

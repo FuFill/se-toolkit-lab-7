@@ -8,13 +8,13 @@ def handle_help() -> str:
         List of available commands with descriptions.
     """
     return (
-        "📚 Справка по командам бота:\n\n"
-        "/start — приветственное сообщение\n"
-        "/help — показать эту справку\n"
-        "/health — проверить статус backend сервиса\n"
-        "/labs — показать список доступных лабораторных работ\n"
-        "/scores <lab_id> — показать оценки за указанную лабораторную\n\n"
-        "Также вы можете задавать вопросы естественным языком, например:\n"
-        "• какие лабораторные доступны?\n"
-        "• какая у меня оценка за lab-04?"
+        "📚 Available commands:\n\n"
+        "/start — welcome message\n"
+        "/help — show this help\n"
+        "/health — check backend status\n"
+        "/labs — list available labs\n"
+        "/scores <lab_id> — show scores for a lab\n\n"
+        "You can also ask questions in natural language:\n"
+        "• what labs are available?\n"
+        "• what is my score for lab-04?"
     )
