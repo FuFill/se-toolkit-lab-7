@@ -18,9 +18,19 @@ if sys.platform == "win32":
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command, CommandObject
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from config import get_settings
-from handlers import handle_start, handle_help, handle_health, handle_labs, handle_scores
+from handlers import (
+    handle_start,
+    handle_help,
+    handle_health,
+    handle_labs,
+    handle_scores,
+    route_intent,
+    get_welcome_message,
+)
+from services import LMSClient, LLMClient
 
 # Configure logging
 logging.basicConfig(
@@ -71,13 +81,14 @@ def handle_command(command: str, args: list[str]) -> str:
         case "scores":
             lab_id = args[0] if args else None
             return handle_scores(lab_id)
+        case "":
+            # Natural language query - join args back into message
+            return " ".join(args)
         case _:
-            # Unknown command or natural language query
-            # For now, return help message
-            # Task 3: Add LLM-based intent routing here
+            # Unknown command - return help
             return (
-                f"❓ Неизвестная команда: /{command}\n\n"
-                "Попробуйте /help для списка доступных команд."
+                f"❓ Unknown command: /{command}\n\n"
+                "Try /help for available commands."
             )
 
 
@@ -85,10 +96,39 @@ def run_test_mode(query: str) -> None:
     """Run bot in test mode - execute handler directly.
 
     Args:
-        query: Command string (e.g., "/start" or "/scores lab-04")
+        query: Command string (e.g., "/start" or "/scores lab-04" or natural language)
     """
-    command, args = parse_command(query)
-    response = handle_command(command, args)
+    settings = get_settings()
+    
+    # Check if it's a slash command
+    if query.strip().startswith("/"):
+        command, args = parse_command(query)
+        response = handle_command(command, args)
+        # If it's a natural language query (empty command), use LLM routing
+        if command == "" and args:
+            lms_client = LMSClient(
+                base_url=settings.lms_api_base_url or "http://localhost:42002",
+                api_key=settings.lms_api_key or "",
+            )
+            llm_client = LLMClient(
+                api_key=settings.llm_api_key or "",
+                base_url=settings.llm_api_base_url or "http://localhost:42005/v1",
+                model=settings.llm_api_model,
+            )
+            response = route_intent(" ".join(args), lms_client, llm_client)
+    else:
+        # Natural language query (no leading slash)
+        lms_client = LMSClient(
+            base_url=settings.lms_api_base_url or "http://localhost:42002",
+            api_key=settings.lms_api_key or "",
+        )
+        llm_client = LLMClient(
+            api_key=settings.llm_api_key or "",
+            base_url=settings.llm_api_base_url or "http://localhost:42005/v1",
+            model=settings.llm_api_model,
+        )
+        response = route_intent(query, lms_client, llm_client)
+    
     print(response)
     sys.exit(0)
 
@@ -101,14 +141,40 @@ async def run_telegram_mode() -> None:
         logger.error("BOT_TOKEN not found in environment. Cannot start Telegram bot.")
         sys.exit(1)
 
+    # Initialize clients
+    lms_client = LMSClient(
+        base_url=settings.lms_api_base_url or "http://localhost:42002",
+        api_key=settings.lms_api_key or "",
+    )
+    llm_client = LLMClient(
+        api_key=settings.llm_api_key or "",
+        base_url=settings.llm_api_base_url or "http://localhost:42005/v1",
+        model=settings.llm_api_model,
+    )
+
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher()
+
+    # Helper function to create inline keyboard with suggestions
+    def get_suggestion_keyboard() -> InlineKeyboardMarkup:
+        """Create inline keyboard with common queries."""
+        suggestions = [
+            "What labs are available?",
+            "Show scores for lab 4",
+            "Which lab has lowest pass rate?",
+            "Top 5 students in lab 4",
+        ]
+        buttons = [
+            [InlineKeyboardButton(text=text, callback_data=f"query:{text}")]
+            for text in suggestions
+        ]
+        return InlineKeyboardMarkup(inline_keyboard=buttons)
 
     # Register command handlers
     @dp.message(Command("start"))
     async def cmd_start(message: types.Message, command: CommandObject) -> None:
-        response = handle_start()
-        await message.answer(response)
+        response = get_welcome_message()
+        await message.answer(response, reply_markup=get_suggestion_keyboard())
 
     @dp.message(Command("help"))
     async def cmd_help(message: types.Message, command: CommandObject) -> None:
@@ -129,6 +195,32 @@ async def run_telegram_mode() -> None:
     async def cmd_scores(message: types.Message, command: CommandObject) -> None:
         lab_id = command.args.split()[0] if command.args else None
         response = handle_scores(lab_id)
+        await message.answer(response)
+
+    # Register callback handler for inline buttons
+    @dp.callback_query(lambda c: c.data.startswith("query:"))
+    async def handle_query_callback(callback_query: types.CallbackQuery) -> None:
+        """Handle inline button clicks."""
+        query = callback_query.data[6:]  # Remove "query:" prefix
+        await callback_query.answer()  # Acknowledge the callback
+        
+        # Send the query to the intent router
+        response = route_intent(query, lms_client, llm_client)
+        await bot.send_message(
+            chat_id=callback_query.from_user.id,
+            text=response,
+        )
+
+    # Register message handler for natural language queries
+    @dp.message()
+    async def handle_message(message: types.Message) -> None:
+        """Handle natural language queries."""
+        user_text = message.text or ""
+        if not user_text.strip():
+            return
+        
+        # Route through LLM
+        response = route_intent(user_text, lms_client, llm_client)
         await message.answer(response)
 
     # Start polling

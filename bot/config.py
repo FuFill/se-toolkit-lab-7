@@ -4,16 +4,22 @@ Loads settings from environment variables using pydantic-settings.
 """
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Final
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Get the directory where this config file lives
+BOT_DIR = Path(__file__).parent
+ROOT_DIR = BOT_DIR.parent
+ENV_FILE = ROOT_DIR / ".env.bot.secret"
 
 
 class BotSettings(BaseSettings):
     """Bot configuration settings."""
 
     model_config: Final[SettingsConfigDict] = SettingsConfigDict(
-        env_file=".env.bot.secret",
+        env_file=str(ENV_FILE),
         env_file_encoding="utf-8",
         extra="ignore",
     )

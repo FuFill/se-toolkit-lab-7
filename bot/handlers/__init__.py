@@ -9,6 +9,7 @@ from .help import handle_help
 from .health import handle_health
 from .labs import handle_labs
 from .scores import handle_scores
+from .intent_router import route_intent, get_welcome_message, get_help_message
 
 __all__ = [
     "handle_start",
@@ -16,4 +17,7 @@ __all__ = [
     "handle_health",
     "handle_labs",
     "handle_scores",
+    "route_intent",
+    "get_welcome_message",
+    "get_help_message",
 ]

@@ -8,11 +8,11 @@ def handle_start() -> str:
         Welcome message for new users.
     """
     return (
-        "👋 Добро пожаловать в LMS Bot!\n\n"
-        "Я помогу вам получить информацию о ваших учебных заданиях и оценках.\n\n"
-        "Доступные команды:\n"
-        "/help — показать список команд\n"
-        "/health — проверить статус backend\n"
-        "/labs — показать доступные лабораторные работы\n"
-        "/scores <lab_id> — показать оценки за лабораторную"
+        "👋 Welcome to LMS Bot!\n\n"
+        "I can help you get information about your assignments and scores.\n\n"
+        "Available commands:\n"
+        "/help — show available commands\n"
+        "/health — check backend status\n"
+        "/labs — show available labs\n"
+        "/scores <lab_id> — show scores for a lab"
     )

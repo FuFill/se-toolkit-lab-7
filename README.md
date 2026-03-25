@@ -95,3 +95,69 @@ By the end of this lab, you should be able to say:
 ### Optional
 
 1. [Flutter Web Chatbot](./lab/tasks/optional/task-1.md)
+
+## Deploy
+
+### Prerequisites
+
+Before deploying, ensure you have:
+
+- `.env.docker.secret` configured with bot credentials (`BOT_TOKEN`, `LLM_API_KEY`, `LLM_API_BASE_URL`, `LMS_API_KEY`)
+- Backend running and healthy (`curl -sf http://localhost:42002/docs` returns 200)
+- Bot code tested locally with `uv run bot.py --test "/start"`
+
+### Deploy with Docker Compose
+
+```bash
+cd ~/se-toolkit-lab-7
+
+# Stop any running nohup bot process
+pkill -f "bot.py" 2>/dev/null
+
+# Build and start all services (backend + bot + postgres + caddy)
+docker compose --env-file .env.docker.secret up --build -d
+
+# Check that all services are running
+docker compose --env-file .env.docker.secret ps
+```
+
+### Verify deployment
+
+```bash
+# Check bot container status
+docker compose --env-file .env.docker.secret ps bot
+
+# View bot logs (look for "Application started" and no tracebacks)
+docker compose --env-file .env.docker.secret logs bot --tail 20
+
+# Verify backend is still healthy
+curl -sf http://localhost:42002/docs
+```
+
+### Test in Telegram
+
+Send these commands to your bot:
+
+1. `/start` — welcome message
+2. `/help` — lists available commands
+3. `/health` — backend status
+4. "what labs are available?" — natural language query (LLM-powered)
+
+### Troubleshooting
+
+| Symptom | Solution |
+|---------|----------|
+| Bot container keeps restarting | Check logs: `docker compose logs bot`. Usually missing env var or import error. |
+| `/health` fails | Ensure `LMS_API_BASE_URL=http://backend:8000` (not `localhost`). |
+| LLM queries fail | `LLM_API_BASE_URL` must use `host.docker.internal` (qwen proxy is on different network). |
+| "BOT_TOKEN is required" | Add bot env vars to `.env.docker.secret`, not just `.env.bot.secret`. |
+
+### Stop and cleanup
+
+```bash
+# Stop all services
+docker compose --env-file .env.docker.secret down
+
+# Stop and remove containers + volumes
+docker compose --env-file .env.docker.secret down -v
+```
