@@ -1,6 +1,9 @@
 """Services for the LMS Telegram bot."""
 
-from .lms_api import LMSClient, LMSClientError
-from .llm_client import LLMClient, LLMClientError
+API clients and external service integrations.
+"""
 
-__all__ = ["LMSClient", "LMSClientError", "LLMClient", "LLMClientError"]
+from .lms_api import LMSAPIClient
+from .llm_client import LLMClient
+
+__all__ = ["LMSAPIClient", "LLMClient"]

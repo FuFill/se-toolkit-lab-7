@@ -1,180 +1,177 @@
-"""LMS API client for fetching data from the backend."""
+"""LMS API client service.
 
-from typing import Any
+Provides methods to interact with the LMS backend API.
+"""
 
 import httpx
+from typing import Any
 
 
-class LMSClientError(Exception):
-    """Error from the LMS API."""
+class LMSAPIClient:
+    """Client for the LMS backend API."""
 
-    pass
+    def __init__(self, base_url: str, api_key: str) -> None:
+        """Initialize the LMS API client.
 
-
-class LMSClient:
-    """Client for the LMS backend API.
-    
-    Uses Bearer token authentication and handles errors gracefully.
-    """
-
-    def __init__(self, base_url: str, api_key: str):
+        Args:
+            base_url: Base URL of the LMS API (e.g., http://localhost:42002)
+            api_key: API key for authentication
+        """
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self._client = httpx.Client(
             base_url=self.base_url,
-            headers={"Authorization": f"Bearer {self.api_key}"},
+            headers={"Authorization": f"Bearer {api_key}"},
             timeout=10.0,
         )
 
-    def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        """Make a GET request to the API.
-        
-        Args:
-            path: API path (e.g., "/items/")
-            params: Optional query parameters
-        
-        Returns:
-            JSON response data
-        
-        Raises:
-            LMSClientError: If the request fails
-        """
-        try:
-            response = self._client.get(path, params=params)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            raise LMSClientError(f"HTTP {e.response.status_code}: {e.response.reason_phrase}") from e
-        except httpx.ConnectError as e:
-            raise LMSClientError(f"connection refused ({self.base_url}). Check that the services are running.") from e
-        except httpx.TimeoutException as e:
-            raise LMSClientError(f"timeout connecting to backend ({self.base_url})") from e
-        except Exception as e:
-            raise LMSClientError(f"unexpected error: {e}") from e
-
     def get_items(self) -> list[dict[str, Any]]:
-        """Fetch all items (labs and tasks) from the backend."""
-        return self._get("/items/")
-
-    def get_labs(self) -> list[dict[str, Any]]:
-        """Fetch only labs (filter out tasks)."""
-        items = self.get_items()
-        return [item for item in items if item.get("type") == "lab"]
-
-    def get_pass_rates(self, lab: str) -> list[dict[str, Any]]:
-        """Fetch pass rates for a specific lab.
-
-        Args:
-            lab: Lab identifier (e.g., "lab-04")
+        """Get all items (labs and tasks) from the backend.
 
         Returns:
-            List of task pass rates with avg_score and attempts
+            List of items with their metadata.
+
+        Raises:
+            httpx.HTTPError: If the request fails.
         """
-        return self._get("/analytics/pass-rates", params={"lab": lab})
+        response = self._client.get("/items/")
+        response.raise_for_status()
+        return response.json()
+
+    def get_learners(self) -> list[dict[str, Any]]:
+        """Get all enrolled learners and their groups.
+
+        Returns:
+            List of learners with their metadata.
+
+        Raises:
+            httpx.HTTPError: If the request fails.
+        """
+        response = self._client.get("/learners/")
+        response.raise_for_status()
+        return response.json()
 
     def get_scores(self, lab: str) -> list[dict[str, Any]]:
-        """Fetch score distribution for a specific lab.
+        """Get score distribution (4 buckets) for a lab.
 
         Args:
             lab: Lab identifier (e.g., "lab-04")
 
         Returns:
-            List of score buckets with counts
+            List of score distribution records.
+
+        Raises:
+            httpx.HTTPError: If the request fails.
         """
-        return self._get("/analytics/scores", params={"lab": lab})
+        response = self._client.get("/analytics/scores", params={"lab": lab})
+        response.raise_for_status()
+        return response.json()
+
+    def get_pass_rates(self, lab: str) -> list[dict[str, Any]]:
+        """Get per-task average scores and attempt counts for a lab.
+
+        Args:
+            lab: Lab identifier (e.g., "lab-04")
+
+        Returns:
+            List of pass rate records per task.
+
+        Raises:
+            httpx.HTTPError: If the request fails.
+        """
+        response = self._client.get("/analytics/pass-rates", params={"lab": lab})
+        response.raise_for_status()
+        return response.json()
 
     def get_timeline(self, lab: str) -> list[dict[str, Any]]:
-        """Fetch submissions per day timeline for a lab.
+        """Get submissions per day for a lab.
 
         Args:
             lab: Lab identifier (e.g., "lab-04")
 
         Returns:
-            List of daily submission counts
+            List of timeline records with submission counts per day.
+
+        Raises:
+            httpx.HTTPError: If the request fails.
         """
-        return self._get("/analytics/timeline", params={"lab": lab})
+        response = self._client.get("/analytics/timeline", params={"lab": lab})
+        response.raise_for_status()
+        return response.json()
 
     def get_groups(self, lab: str) -> list[dict[str, Any]]:
-        """Fetch per-group scores and student counts for a lab.
+        """Get per-group scores and student counts for a lab.
 
         Args:
             lab: Lab identifier (e.g., "lab-04")
 
         Returns:
-            List of groups with scores and student counts
-        """
-        return self._get("/analytics/groups", params={"lab": lab})
+            List of group records with scores and student counts.
 
-    def get_top_learners(self, lab: str, limit: int = 10) -> list[dict[str, Any]]:
-        """Fetch top N learners by score for a lab.
+        Raises:
+            httpx.HTTPError: If the request fails.
+        """
+        response = self._client.get("/analytics/groups", params={"lab": lab})
+        response.raise_for_status()
+        return response.json()
+
+    def get_top_learners(self, lab: str | None = None, limit: int = 10) -> list[dict[str, Any]]:
+        """Get top N learners by score.
 
         Args:
-            lab: Lab identifier (e.g., "lab-04")
+            lab: Optional lab identifier to filter by (e.g., "lab-04")
             limit: Number of top learners to return (default: 10)
 
         Returns:
-            List of top learners with their scores
+            List of top learners with their scores.
+
+        Raises:
+            httpx.HTTPError: If the request fails.
         """
-        return self._get("/analytics/top-learners", params={"lab": lab, "limit": limit})
+        params: dict[str, Any] = {"limit": limit}
+        if lab:
+            params["lab"] = lab
+        response = self._client.get("/analytics/top-learners", params=params)
+        response.raise_for_status()
+        return response.json()
 
     def get_completion_rate(self, lab: str) -> dict[str, Any]:
-        """Fetch completion rate percentage for a lab.
+        """Get completion rate percentage for a lab.
 
         Args:
             lab: Lab identifier (e.g., "lab-04")
 
         Returns:
-            Dict with completion rate percentage
-        """
-        return self._get("/analytics/completion-rate", params={"lab": lab})
-
-    def get_learners(self) -> list[dict[str, Any]]:
-        """Fetch all enrolled learners and their groups.
-
-        Returns:
-            List of learners with their group assignments
-        """
-        return self._get("/learners/")
-
-    def trigger_sync(self) -> dict[str, Any]:
-        """Trigger a data sync from the autochecker.
-
-        Returns:
-            Dict with sync status
-        """
-        return self._post("/pipeline/sync")
-
-    def _post(self, path: str, json: dict[str, Any] | None = None) -> Any:
-        """Make a POST request to the API.
-
-        Args:
-            path: API path (e.g., "/pipeline/sync")
-            json: Optional JSON body
-
-        Returns:
-            JSON response data
+            Dict with completion rate percentage.
 
         Raises:
-            LMSClientError: If the request fails
+            httpx.HTTPError: If the request fails.
         """
-        try:
-            response = self._client.post(path, json=json)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            raise LMSClientError(f"HTTP {e.response.status_code}: {e.response.reason_phrase}") from e
-        except httpx.ConnectError as e:
-            raise LMSClientError(f"connection refused ({self.base_url}). Check that the services are running.") from e
-        except httpx.TimeoutException as e:
-            raise LMSClientError(f"timeout connecting to backend ({self.base_url})") from e
-        except Exception as e:
-            raise LMSClientError(f"unexpected error: {e}") from e
+        response = self._client.get("/analytics/completion-rate", params={"lab": lab})
+        response.raise_for_status()
+        return response.json()
 
-    def health_check(self) -> dict[str, Any]:
-        """Check if the backend is healthy by fetching items.
+    def trigger_sync(self) -> dict[str, Any]:
+        """Trigger data sync from autochecker.
 
         Returns:
-            Dict with status and item count
+            Dict with sync status.
+
+        Raises:
+            httpx.HTTPError: If the request fails.
+        """
+        response = self._client.post("/pipeline/sync")
+        response.raise_for_status()
+        return response.json()
+
+    def check_health(self) -> dict[str, Any]:
+        """Check if the backend is healthy.
+
+        Returns:
+            Dict with 'healthy' status and 'item_count'.
+
+        Raises:
+            httpx.HTTPError: If the request fails.
         """
         items = self.get_items()
-        return {"status": "healthy", "item_count": len(items)}
+        return {"healthy": True, "item_count": len(items)}

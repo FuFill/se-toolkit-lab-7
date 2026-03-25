@@ -9,7 +9,7 @@ from typing import Final
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Get the directory where this config file lives
+# Get the project root directory (parent of bot/)
 BOT_DIR = Path(__file__).parent
 ROOT_DIR = BOT_DIR.parent
 ENV_FILE = ROOT_DIR / ".env.bot.secret"

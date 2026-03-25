@@ -4,6 +4,8 @@
 Supports two modes:
 1. Test mode (--test): Runs handlers directly without Telegram connection
 2. Telegram mode: Runs the bot with aiogram for Telegram integration
+
+Task 3: Adds LLM-based intent routing for natural language queries.
 """
 
 import argparse
@@ -28,9 +30,8 @@ from handlers import (
     handle_labs,
     handle_scores,
     route_intent,
-    get_welcome_message,
 )
-from services import LMSClient, LLMClient
+from services import LMSAPIClient, LLMClient
 
 # Configure logging
 logging.basicConfig(
@@ -55,7 +56,7 @@ def parse_command(text: str) -> tuple[str, list[str]]:
         command = parts[0]
         args = parts[1].split() if len(parts) > 1 else []
         return command, args
-    # Natural language query - treat as unknown command
+    # Natural language query - no command
     return "", [text]
 
 
@@ -82,55 +83,68 @@ def handle_command(command: str, args: list[str]) -> str:
             lab_id = args[0] if args else None
             return handle_scores(lab_id)
         case "":
-            # Natural language query - join args back into message
-            return " ".join(args)
+            # Natural language query - use LLM intent routing
+            # This is handled separately in run_test_mode
+            return ""
         case _:
-            # Unknown command - return help
-            return (
-                f"❓ Unknown command: /{command}\n\n"
-                "Try /help for available commands."
-            )
+            # Unknown command - use LLM to try to understand
+            return f"❓ Неизвестная команда: /{command}\n\nПопробуйте /help для списка доступных команд."
 
 
 def run_test_mode(query: str) -> None:
-    """Run bot in test mode - execute handler directly.
+    """Run bot in test mode - execute handler or LLM routing.
 
     Args:
-        query: Command string (e.g., "/start" or "/scores lab-04" or natural language)
+        query: Command string or natural language query
     """
     settings = get_settings()
-    
+
     # Check if it's a slash command
-    if query.strip().startswith("/"):
-        command, args = parse_command(query)
+    command, args = parse_command(query)
+    if command:
         response = handle_command(command, args)
-        # If it's a natural language query (empty command), use LLM routing
-        if command == "" and args:
-            lms_client = LMSClient(
-                base_url=settings.lms_api_base_url or "http://localhost:42002",
-                api_key=settings.lms_api_key or "",
-            )
-            llm_client = LLMClient(
-                api_key=settings.llm_api_key or "",
-                base_url=settings.llm_api_base_url or "http://localhost:42005/v1",
-                model=settings.llm_api_model,
-            )
-            response = route_intent(" ".join(args), lms_client, llm_client)
-    else:
-        # Natural language query (no leading slash)
-        lms_client = LMSClient(
-            base_url=settings.lms_api_base_url or "http://localhost:42002",
-            api_key=settings.lms_api_key or "",
-        )
-        llm_client = LLMClient(
-            api_key=settings.llm_api_key or "",
-            base_url=settings.llm_api_base_url or "http://localhost:42005/v1",
-            model=settings.llm_api_model,
-        )
-        response = route_intent(query, lms_client, llm_client)
-    
+        print(response)
+        sys.exit(0)
+
+    # Natural language query - use LLM routing
+    if not settings.lms_api_base_url or not settings.lms_api_key:
+        print("Error: LMS_API_BASE_URL and LMS_API_KEY required in .env.bot.secret", file=sys.stderr)
+        sys.exit(1)
+
+    if not settings.llm_api_base_url or not settings.llm_api_key:
+        print("Error: LLM_API_BASE_URL and LLM_API_KEY required in .env.bot.secret", file=sys.stderr)
+        sys.exit(1)
+
+    # Initialize clients
+    api_client = LMSAPIClient(settings.lms_api_base_url, settings.lms_api_key)
+    llm_client = LLMClient(settings.llm_api_base_url, settings.llm_api_key, settings.llm_api_model)
+
+    # Route the query through LLM
+    response = route_intent(query, api_client, llm_client, debug=True)
     print(response)
     sys.exit(0)
+
+
+def get_start_keyboard() -> InlineKeyboardMarkup:
+    """Create inline keyboard for /start command.
+
+    Returns:
+        InlineKeyboardMarkup with common action buttons
+    """
+    keyboard = [
+        [
+            InlineKeyboardButton(text="📋 Доступные лабы", callback_data="labs"),
+            InlineKeyboardButton(text="🏥 Статус системы", callback_data="health"),
+        ],
+        [
+            InlineKeyboardButton(text="📊 Топ студентов", callback_data="top_learners"),
+            InlineKeyboardButton(text="❓ Помощь", callback_data="help"),
+        ],
+        [
+            InlineKeyboardButton(text="🔍 Найти худшую лабораторию", callback_data="worst_lab"),
+        ],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 async def run_telegram_mode() -> None:
@@ -155,26 +169,19 @@ async def run_telegram_mode() -> None:
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher()
 
-    # Helper function to create inline keyboard with suggestions
-    def get_suggestion_keyboard() -> InlineKeyboardMarkup:
-        """Create inline keyboard with common queries."""
-        suggestions = [
-            "What labs are available?",
-            "Show scores for lab 4",
-            "Which lab has lowest pass rate?",
-            "Top 5 students in lab 4",
-        ]
-        buttons = [
-            [InlineKeyboardButton(text=text, callback_data=f"query:{text}")]
-            for text in suggestions
-        ]
-        return InlineKeyboardMarkup(inline_keyboard=buttons)
+    # Initialize API and LLM clients
+    api_client = None
+    llm_client = None
+    if settings.lms_api_base_url and settings.lms_api_key:
+        api_client = LMSAPIClient(settings.lms_api_base_url, settings.lms_api_key)
+    if settings.llm_api_base_url and settings.llm_api_key:
+        llm_client = LLMClient(settings.llm_api_base_url, settings.llm_api_key, settings.llm_api_model)
 
     # Register command handlers
     @dp.message(Command("start"))
     async def cmd_start(message: types.Message, command: CommandObject) -> None:
-        response = get_welcome_message()
-        await message.answer(response, reply_markup=get_suggestion_keyboard())
+        response = handle_start()
+        await message.answer(response, reply_markup=get_start_keyboard())
 
     @dp.message(Command("help"))
     async def cmd_help(message: types.Message, command: CommandObject) -> None:
@@ -197,31 +204,64 @@ async def run_telegram_mode() -> None:
         response = handle_scores(lab_id)
         await message.answer(response)
 
-    # Register callback handler for inline buttons
-    @dp.callback_query(lambda c: c.data.startswith("query:"))
-    async def handle_query_callback(callback_query: types.CallbackQuery) -> None:
-        """Handle inline button clicks."""
-        query = callback_query.data[6:]  # Remove "query:" prefix
-        await callback_query.answer()  # Acknowledge the callback
-        
-        # Send the query to the intent router
-        response = route_intent(query, lms_client, llm_client)
-        await bot.send_message(
-            chat_id=callback_query.from_user.id,
-            text=response,
-        )
+    # Handle callback queries from inline buttons
+    @dp.callback_query()
+    async def handle_callback(callback: types.CallbackQuery) -> None:
+        action = callback.data
 
-    # Register message handler for natural language queries
+        if action == "labs":
+            response = handle_labs()
+        elif action == "health":
+            response = handle_health()
+        elif action == "help":
+            response = handle_help()
+        elif action == "top_learners":
+            if api_client and llm_client:
+                response = route_intent("кто топ 5 студентов?", api_client, llm_client)
+            else:
+                response = "LLM не настроен"
+        elif action == "worst_lab":
+            if api_client and llm_client:
+                response = route_intent("какая лаборатория имеет наименьший процент сдачи?", api_client, llm_client)
+            else:
+                response = "LLM не настроен"
+        else:
+            response = "Неизвестное действие"
+
+        await callback.message.answer(response)
+        await callback.answer()
+
+    # Handle all other messages (natural language queries)
     @dp.message()
     async def handle_message(message: types.Message) -> None:
-        """Handle natural language queries."""
-        user_text = message.text or ""
-        if not user_text.strip():
+        user_text = message.text
+
+        if not user_text:
             return
-        
-        # Route through LLM
-        response = route_intent(user_text, lms_client, llm_client)
-        await message.answer(response)
+
+        # Check if it's a slash command (shouldn't reach here, but just in case)
+        if user_text.startswith("/"):
+            await message.answer("Неизвестная команда. Попробуйте /help")
+            return
+
+        # Use LLM intent routing for natural language queries
+        if api_client and llm_client:
+            # Send "thinking" message
+            thinking = await message.answer("🤔 Думаю...")
+
+            try:
+                response = route_intent(user_text, api_client, llm_client)
+                await thinking.edit_text(response)
+            except Exception as e:
+                logger.error(f"Error in intent routing: {e}")
+                await thinking.edit_text(f"Ошибка: {e}")
+        else:
+            await message.answer(
+                "Я пока не умею отвечать на вопросы. Попробуйте использовать команды:\n"
+                "/help — показать команды\n"
+                "/labs — показать лабораторные\n"
+                "/scores <lab> — показать оценки"
+            )
 
     # Start polling
     logger.info("Starting Telegram bot...")
